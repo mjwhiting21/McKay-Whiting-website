@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Gravity Merge: Solid Ground</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background: #080808; font-family: 'Courier New', monospace; }
+        
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: white;
+            z-index: 10;
+        }
+
+        .hud {
+            display: flex;
+            justify-content: space-between;
+            width: 90%;
+            margin-top: 20px;
+            text-shadow: 0 0 10px rgba(0,255,255,0.5);
+        }
+        .score-box { text-align: left; }
+        .high-box { text-align: right; color: #FFD700; }
+        .val { font-size: 32px; font-weight: bold; display: block; }
+        .label { font-size: 12px; opacity: 0.7; letter-spacing: 2px; text-transform: uppercase; }
+
+        #timer-container {
+            position: relative;
+            width: 70px;
+            height: 70px;
+            margin-top: 10px;
+        }
+        svg { transform: rotate(-90deg); width: 70px; height: 70px; }
+        circle { fill: none; stroke-width: 6; stroke-linecap: round; }
+        .bg-ring { stroke: rgba(255,255,255,0.1); }
+        .progress-ring { 
+            stroke: #00f2fe; stroke-dasharray: 188; stroke-dashoffset: 0; 
+            filter: drop-shadow(0 0 5px #00f2fe);
+        }
+        #next-shape-icon {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 24px; height: 24px;
+            box-shadow: 0 0 10px rgba(255,255,255,0.2);
+        }
+
+        #message-overlay {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 242, 254, 0.9);
+            color: #000;
+            padding: 40px 60px;
+            border-radius: 10px;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 0 50px #00f2fe;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.5s ease-in, opacity 0.5s;
+        }
+        #message-overlay.active { opacity: 1; }
+        #message-overlay.slide-out { transform: translate(-50%, -300%); opacity: 0; }
+
+        #controls-hint {
+            position: absolute; bottom: 30px; width: 100%;
+            text-align: center; color: #555; font-size: 14px; letter-spacing: 1px;
+        }
+        
+        #game-over {
+            display: none;
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(10,10,10,0.95);
+            border: 2px solid #00f2fe;
+            padding: 50px;
+            text-align: center; color: white;
+            border-radius: 20px; z-index: 20;
+            pointer-events: auto;
+            box-shadow: 0 0 50px rgba(0, 242, 254, 0.2);
+        }
+        button {
+            background: transparent; border: 2px solid #00f2fe; color: #00f2fe;
+            padding: 10px 40px; font-size: 20px; border-radius: 50px;
+            cursor: pointer; margin-top: 20px; font-weight: bold;
+            font-family: inherit; transition: 0.2s;
+        }
+        button:hover { background: #00f2fe; color: #000; }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <a href="index.html">Home Page</a>
+        <a href="scratch.html">Scratch Page</a>
+        <a href="webapp.html">WebApp 1</a>
+        <a href="webapp2.html">WebApp 2</a>
+    </nav>
+
+    <div id="ui-layer">
+        <div class="hud">
+            <div class="score-box">
+                <span class="label">Score</span>
+                <span id="score" class="val">0</span>
+            </div>
+            <div class="high-box">
+                <span class="label">Record</span>
+                <span id="highscore" class="val">0</span>
+            </div>
+        </div>
+
+        <div id="timer-container">
+            <svg>
+                <circle class="bg-ring" cx="35" cy="35" r="30"></circle>
+                <circle id="timer-ring" class="progress-ring" cx="35" cy="35" r="30"></circle>
+            </svg>
+            <div id="next-shape-icon"></div>
+        </div>
+    </div>
+
+    <div id="message-overlay">LEVEL UP!</div>
+
+    <div id="controls-hint">
+        ARROWS: Left/Right to Slide <span id="ability-flip" style="display:none; color:#00f2fe"> | UP to Flip</span> <span id="ability-jiggle" style="display:none; color:#FFD700"> | DOWN to Jiggle</span>
+    </div>
+
+    <div id="game-over">
+        <h1 style="margin:0 0 20px 0;">CONTAINER BREACH</h1>
+        <p style="color:#aaa;">Matter lost to the void.</p>
+        <p style="font-size: 24px;">Final Score: <span id="final-score">0</span></p>
+        <button onclick="location.reload()">REINITIALIZE</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+
+    <script>
+        const CONFIG = {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            bucketWidth: 380,
+            bucketHeight: 500, 
+            wallThickness: 30,
+            moveSpeed: 15,
+            spawnInterval: 2500,
+            minSpawnInterval: 500,
+            bottomPadding: 60,
+            voidDepth: 3000
+        };
+
+        const SHAPES = [
+            // NORMAL
+            { label: "Triangle", sides: 3, radius: 22, color: "#FF4444", score: 10, type: 'normal' },
+            { label: "Square", sides: 4, radius: 30, color: "#44FF44", score: 20, type: 'normal' },
+            { label: "Pentagon", sides: 5, radius: 38, color: "#4444FF", score: 40, type: 'normal' },
+            { label: "Hexagon", sides: 6, radius: 46, color: "#FFFF44", score: 80, type: 'normal' },
+            { label: "Heptagon", sides: 7, radius: 54, color: "#FF44FF", score: 160, type: 'normal' },
+            { label: "Octagon", sides: 8, radius: 62, color: "#44FFFF", score: 320, type: 'normal' },
+            { label: "Nonagon", sides: 9, radius: 72, color: "#FF8844", score: 500, type: 'normal' },
+            { label: "Decagon", sides: 10, radius: 85, color: "#88FF44", score: 1000, type: 'normal' },
+            { label: "Circle", sides: 0, radius: 100, color: "#FFFFFF", score: 5000, type: 'pivot' }, 
+            // ALTER EGO
+            { label: "Gold", sides: 12, radius: 90, color: "#FFD700", score: 10000, type: 'alter' },
+            { label: "Silver", sides: 10, radius: 70, color: "#C0C0C0", score: 20000, type: 'alter' },
+            { label: "Iridescent", sides: 8, radius: 55, color: "#70FFFF", score: 40000, type: 'alter', pulse: true },
+            { label: "Rainbow", sides: 6, radius: 40, color: "#FF00FF", score: 80000, type: 'alter', pulse: true },
+            { label: "White", sides: 4, radius: 30, color: "#FFFFFF", score: 150000, type: 'alter', stroke: '#000' },
+            { label: "Black", sides: 3, radius: 20, color: "#111111", score: 300000, type: 'alter', stroke: '#FFF' },
+            { label: "Singularity", sides: 0, radius: 6, color: "#000000", score: 1000000, type: 'final', stroke: '#F0F' }
+        ];
+
+        let engine, render, runner, world;
+        let bucketBody; 
+        let keys = { left: false, right: false, up: false, down: false };
+        let nextShapeTier = 0;
+        let timeUntilDrop = CONFIG.spawnInterval;
+        let currentInterval = CONFIG.spawnInterval;
+        let score = 0;
+        let highScore = localStorage.getItem('gravityMergeEvent_High') || 0;
+        let isGameOver = false;
+        let isPaused = false;
+        let audioCtx;
+        let time = 0;
+        let currentBucketW = CONFIG.bucketWidth;
+        let currentBucketH = CONFIG.bucketHeight;
+        let prevBucketW = CONFIG.bucketWidth;
+
+        const milestones = {
+            1000: { triggered: false, msg: "UNLOCK: PANCAKE FLIP (Up Arrow)" },
+            2000: { triggered: false, msg: "EXPANSION: 10% WIDER" },
+            2500: { triggered: false, msg: "EXPANSION: 10% TALLER" },
+            3000: { triggered: false, msg: "COMPRESSION: 20% NARROWER" },
+            3100: { triggered: false, msg: "JK! JUST KIDDING" },
+            4000: { triggered: false, msg: "EXPANSION: 10% TALLER" },
+            5000: { triggered: false, msg: "UNLOCK: JIGGLE MODE (Down Arrow)" }
+        };
+
+        function init() {
+            document.getElementById('highscore').innerText = highScore;
+            updateNextShapeIcon();
+
+            const { Engine, Render, Runner, World, Bodies, Body, Events } = Matter;
+
+            engine = Engine.create();
+            world = engine.world;
+            engine.gravity.y = 1.6; 
+
+            render = Render.create({
+                element: document.body,
+                engine: engine,
+                options: {
+                    width: CONFIG.width,
+                    height: CONFIG.height,
+                    wireframes: false,
+                    background: '#080808',
+                    hasBounds: true
+                }
+            });
+
+            const initialY = CONFIG.height - (currentBucketH / 2) - CONFIG.bottomPadding;
+            createCompoundBucket(CONFIG.width / 2, initialY, currentBucketW, currentBucketH);
+
+            // Void Floor
+            const deathFloor = Bodies.rectangle(CONFIG.width/2, CONFIG.height + CONFIG.voidDepth, CONFIG.width * 20, 100, { 
+                isStatic: true, isSensor: true, label: "DeathFloor" 
+            });
+            World.add(world, deathFloor);
+
+            window.addEventListener('keydown', e => {
+                if(e.code === "ArrowLeft") keys.left = true;
+                if(e.code === "ArrowRight") keys.right = true;
+                if(e.code === "ArrowUp") keys.up = true;
+                if(e.code === "ArrowDown") keys.down = true;
+                if(!audioCtx) playSound(0, 'normal');
+            });
+            window.addEventListener('keyup', e => {
+                if(e.code === "ArrowLeft") keys.left = false;
+                if(e.code === "ArrowRight") keys.right = false;
+                if(e.code === "ArrowUp") keys.up = false;
+                if(e.code === "ArrowDown") keys.down = false;
+            });
+
+            // Update Loop
+            Events.on(engine, 'beforeUpdate', (event) => {
+                if(isGameOver || isPaused) return;
+                time += 0.1;
+                const { Body, Composite } = Matter;
+
+                // 1. Horizontal Movement
+                let vx = 0;
+                if (keys.left) vx -= CONFIG.moveSpeed;
+                if (keys.right) vx += CONFIG.moveSpeed;
+                if (keys.down && score >= 5000) vx += (Math.sin(time * 2) * 25);
+
+                // 2. Vertical Movement (Hard Lock vs Flip)
+                const targetY = CONFIG.height - (currentBucketH / 2) - CONFIG.bottomPadding;
+                const currentY = bucketBody.position.y;
+                let vy = bucketBody.velocity.y;
+
+                if (keys.up && score >= 1000) {
+                    // FLIP Logic: Allow physics to move it up
+                    // Only flip if we are roughly at the bottom (prevent double jumping mid-air)
+                    if(currentY >= targetY - 10) {
+                        vy = -18; // Yeet
+                    }
+                } else {
+                    // LOCKED Logic:
+                    // If we are above the target (mid flip), allow gravity to pull us down.
+                    // If we are AT or BELOW the target, snap to grid and kill Y velocity.
+                    
+                    if (currentY >= targetY - 5) { // Tolerance
+                        // We are on the ground.
+                        // Force position to fix micro-drifts
+                        Body.setPosition(bucketBody, { x: bucketBody.position.x, y: targetY });
+                        vy = 0; 
+                    } 
+                    // else: we are in the air falling back down, let gravity do its thing.
+                }
+
+                Body.setVelocity(bucketBody, { x: vx, y: vy });
+                Body.setAngularVelocity(bucketBody, 0);
+                Body.setAngle(bucketBody, 0);
+
+                // 3. Screen Wrap
+                handleScreenWrap();
+                // 4. Zoom
+                updateCamera();
+                // 5. FX
+                Composite.allBodies(world).forEach(b => {
+                    if (b.pulse) {
+                        const hue = (time * 10) % 360;
+                        if(b.label === "Rainbow") b.render.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                        if(b.label === "Iridescent") b.render.fillStyle = `hsl(180, 100%, ${50 + Math.sin(time)*20}%)`;
+                    }
+                });
+
+                // 6. Spawning
+                const dt = engine.timing.lastDelta;
+                timeUntilDrop -= dt;
+                const ring = document.getElementById('timer-ring');
+                const offset = 188 - (188 * (timeUntilDrop / currentInterval));
+                ring.style.strokeDashoffset = -offset;
+
+                if (timeUntilDrop <= 0) {
+                    dropShape();
+                    timeUntilDrop = currentInterval;
+                    if(currentInterval > CONFIG.minSpawnInterval) currentInterval -= 5;
+                }
+            });
+
+            Events.on(engine, 'collisionStart', (event) => {
+                event.pairs.forEach(pair => {
+                    const { bodyA, bodyB } = pair;
+                    
+                    if(bodyA.label === "DeathFloor" || bodyB.label === "DeathFloor") {
+                        const other = bodyA.label === "DeathFloor" ? bodyB : bodyA;
+                        if(other.label !== "Bucket") endGame();
+                        return;
+                    }
+
+                    if (bodyA.tier !== undefined && bodyB.tier !== undefined) {
+                        if (bodyA.tier === bodyB.tier && bodyA.tier < SHAPES.length - 1) {
+                            if(!bodyA.toRemove && !bodyB.toRemove) mergeShapes(bodyA, bodyB);
+                        }
+                    }
+                });
+            });
+
+            runner = Runner.create();
+            Runner.run(runner, engine);
+        }
+
+        function handleScreenWrap() {
+            const { Body, Composite } = Matter;
+            const buffer = currentBucketW / 2 + 50; 
+            const screenW = CONFIG.width;
+            const bx = bucketBody.position.x;
+            
+            let shiftX = 0;
+            if (bx > screenW + buffer) shiftX = -(screenW + buffer * 2);
+            else if (bx < -buffer) shiftX = (screenW + buffer * 2);
+
+            if (shiftX !== 0) {
+                const allBodies = Composite.allBodies(world);
+                allBodies.forEach(b => {
+                    if (b.label === "DeathFloor") return;
+                    const dist = Math.abs(b.position.x - bx);
+                    if (b === bucketBody || dist < currentBucketW) {
+                        Body.setPosition(b, { x: b.position.x + shiftX, y: b.position.y });
+                    }
+                });
+            }
+        }
+
+        function updateCamera() {
+            const requiredHeight = currentBucketH + 300; 
+            let scale = Math.max(1, requiredHeight / window.innerHeight);
+            
+            const viewHeight = window.innerHeight * scale;
+            const viewWidth = window.innerWidth * scale;
+            const bottomY = CONFIG.height + CONFIG.bottomPadding;
+            const centerY = bottomY - (viewHeight / 2);
+            const centerX = CONFIG.width / 2;
+
+            render.bounds.min.x = centerX - viewWidth / 2;
+            render.bounds.max.x = centerX + viewWidth / 2;
+            render.bounds.min.y = centerY - viewHeight / 2;
+            render.bounds.max.y = centerY + viewHeight / 2;
+        }
+
+        function createCompoundBucket(x, y, w, h) {
+            const { Bodies, Body, World } = Matter;
+            const t = CONFIG.wallThickness;
+
+            const floor = Bodies.rectangle(0, h/2 - t/2, w, t, { render: { fillStyle: '#444'}, chamfer: { radius: 0 } });
+            const left = Bodies.rectangle(-w/2 + t/2, 0, t, h, { render: { fillStyle: '#444'}, chamfer: { radius: [10, 10, 0, 0] } });
+            const right = Bodies.rectangle(w/2 - t/2, 0, t, h, { render: { fillStyle: '#444'}, chamfer: { radius: [10, 10, 0, 0] } });
+
+            if (bucketBody) World.remove(world, bucketBody);
+
+            bucketBody = Body.create({
+                parts: [floor, left, right],
+                isStatic: false, 
+                inertia: Infinity,
+                friction: 0.5,
+                frictionStatic: 1.0,
+                restitution: 0.0,
+                mass: 500, 
+                label: "Bucket"
+            });
+
+            Body.setPosition(bucketBody, { x: x, y: y });
+            World.add(world, bucketBody);
+        }
+
+        function triggerEvent(text) {
+            // STOP PHYSICS COMPLETELY
+            runner.enabled = false;
+            isPaused = true;
+            
+            const el = document.getElementById('message-overlay');
+            el.innerText = text;
+            el.classList.remove('slide-out');
+            el.classList.add('active');
+            
+            // Rebuild Bucket
+            createCompoundBucket(bucketBody.position.x, bucketBody.position.y, currentBucketW, currentBucketH);
+
+            setTimeout(() => {
+                el.classList.add('slide-out'); 
+                // RESUME PHYSICS
+                runner.enabled = true;
+                isPaused = false; 
+                setTimeout(() => el.classList.remove('active'), 500);
+            }, 1800); 
+        }
+
+        function checkScoreEvents() {
+            for (let pt in milestones) {
+                if (score >= pt && !milestones[pt].triggered) {
+                    milestones[pt].triggered = true;
+                    if(pt == 1000) document.getElementById('ability-flip').style.display = "inline";
+                    if(pt == 2000) currentBucketW *= 1.10;
+                    if(pt == 2500) currentBucketH *= 1.10;
+                    if(pt == 3000) { prevBucketW = currentBucketW; currentBucketW *= 0.80; } 
+                    if(pt == 3100) currentBucketW = prevBucketW; 
+                    if(pt == 4000) currentBucketH *= 1.10;
+                    if(pt == 5000) document.getElementById('ability-jiggle').style.display = "inline";
+                    triggerEvent(milestones[pt].msg);
+                    return;
+                }
+            }
+            if (score > 5000 && score % 1000 === 0) {
+                if (milestones.lastRecurring !== score) {
+                    milestones.lastRecurring = score;
+                    currentBucketW *= 1.05;
+                    currentBucketH *= 1.05;
+                    triggerEvent("EXPANSION: +5% SIZE");
+                }
+            }
+        }
+
+        function dropShape() {
+            const { Bodies, World } = Matter;
+            const def = SHAPES[nextShapeTier];
+            
+            let dropX = bucketBody.position.x;
+            dropX += (Math.random() * 40 - 20);
+            const dropY = bucketBody.position.y - (currentBucketH / 2) - 100;
+
+            const opts = {
+                restitution: 0.15,
+                friction: 0.2,    
+                chamfer: { radius: [def.sides === 3 ? 5 : 10] }, 
+                render: { fillStyle: def.color }
+            };
+
+            let body;
+            if (def.sides === 0) body = Bodies.circle(dropX, dropY, def.radius, opts);
+            else body = Bodies.polygon(dropX, dropY, def.sides, def.radius, opts);
+
+            body.tier = nextShapeTier;
+            body.toRemove = false;
+            World.add(world, body);
+            
+            const r = Math.random();
+            if(r < 0.6) nextShapeTier = 0;
+            else if(r < 0.9) nextShapeTier = 1;
+            else nextShapeTier = 2;
+            updateNextShapeIcon();
+        }
+
+        function mergeShapes(bodyA, bodyB) {
+            bodyA.toRemove = true;
+            bodyB.toRemove = true;
+            
+            const nextTier = bodyA.tier + 1;
+            const midX = (bodyA.position.x + bodyB.position.x) / 2;
+            const midY = (bodyA.position.y + bodyB.position.y) / 2;
+
+            Matter.World.remove(world, [bodyA, bodyB]);
+
+            const def = SHAPES[nextTier];
+            score += SHAPES[bodyA.tier].score * 2;
+            document.getElementById('score').innerText = score;
+            
+            checkScoreEvents(); 
+            playSound(nextTier, def.type);
+
+            let density = 0.002;
+            if(def.type === 'alter') density = 0.01;
+            if(def.type === 'final') density = 100; 
+
+            const opts = {
+                restitution: 0.1,
+                friction: 0.2,
+                density: density,
+                chamfer: { radius: [def.sides === 3 ? 5 : 10] }, 
+                render: { 
+                    fillStyle: def.color,
+                    strokeStyle: def.stroke || 'transparent',
+                    lineWidth: def.stroke ? 3 : 0
+                }
+            };
+
+            let newBody;
+            if (def.sides === 0) newBody = Matter.Bodies.circle(midX, midY, def.radius, opts);
+            else newBody = Matter.Bodies.polygon(midX, midY, def.sides, def.radius, opts);
+            
+            newBody.tier = nextTier;
+            newBody.label = def.label;
+            newBody.pulse = def.pulse || false;
+            newBody.toRemove = false;
+            
+            Matter.World.add(world, newBody);
+        }
+
+        function playSound(tier, type) {
+            if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            let freq;
+            if (type === 'normal') freq = 300 - (tier * 20);
+            else freq = 600 + ((tier - 9) * 200); 
+            if (freq < 50) freq = 50;
+
+            osc.type = type === 'alter' ? 'triangle' : 'sine';
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(freq/2, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        function updateNextShapeIcon() {
+            const def = SHAPES[nextShapeTier];
+            const icon = document.getElementById('next-shape-icon');
+            icon.style.background = def.color;
+            if(def.sides === 0) {
+                icon.style.borderRadius = "50%";
+                icon.style.clipPath = "none";
+            } else if (def.sides === 3) {
+                icon.style.borderRadius = "0";
+                icon.style.clipPath = "polygon(50% 0%, 0% 100%, 100% 100%)";
+            } else {
+                icon.style.borderRadius = "3px";
+                icon.style.clipPath = "none";
+            }
+        }
+
+        function endGame() {
+            if(isGameOver) return;
+            isGameOver = true;
+            if(score > highScore) localStorage.setItem('gravityMergeEvent_High', score);
+            document.getElementById('final-score').innerText = score;
+            document.getElementById('game-over').style.display = 'block';
+            Matter.Runner.stop(runner);
+        }
+
+        window.addEventListener('resize', () => {
+            CONFIG.width = window.innerWidth;
+            CONFIG.height = window.innerHeight;
+            render.canvas.width = window.innerWidth;
+            render.canvas.height = window.innerHeight;
+        });
+
+        init();
+    </script>
+</body>
+</html>
