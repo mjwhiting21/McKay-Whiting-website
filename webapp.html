@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravity Merge 3D - Ultimate</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a1a20; font-family: 'Segoe UI', sans-serif; }
+        
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Top HUD */
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            width: 90%;
+            margin-top: 20px;
+            text-shadow: 1px 1px 4px rgba(0,0,0,0.8);
+            color: white;
+        }
+
+        .score-box { text-align: left; }
+        .highscore-box { text-align: right; color: #ffd700; }
+        .score-val { font-size: 32px; font-weight: bold; display: block;}
+        .label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #888; }
+
+        /* Timer / Spawner UI */
+        #spawner-ui {
+            position: absolute;
+            top: 80px;
+            width: 80px;
+            height: 80px;
+        }
+
+        /* SVG Circle Timer */
+        svg {
+            transform: rotate(-90deg);
+            width: 80px;
+            height: 80px;
+        }
+        circle {
+            fill: none;
+            stroke-width: 6;
+            stroke-linecap: round;
+        }
+        .bg-ring { stroke: rgba(255,255,255,0.1); }
+        .progress-ring { 
+            stroke: #4facfe; 
+            stroke-dasharray: 220; /* 2 * PI * r (approx 35 radius) */
+            stroke-dashoffset: 0;
+            transition: stroke-dashoffset 0.1s linear;
+        }
+
+        /* The Next Shape Icon inside the ring */
+        #next-shape-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            background-color: #ff4444;
+            border-radius: 50%; /* Default sphere look */
+            box-shadow: inset -5px -5px 10px rgba(0,0,0,0.5);
+            border: 2px solid rgba(255,255,255,0.5);
+        }
+
+        /* Controls Hint */
+        #controls-hint {
+            position: absolute;
+            bottom: 30px;
+            color: rgba(255,255,255,0.5);
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        #game-over {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.95);
+            padding: 50px;
+            border-radius: 20px;
+            text-align: center;
+            color: white;
+            border: 2px solid #4facfe;
+            box-shadow: 0 0 50px rgba(79, 172, 254, 0.3);
+            z-index: 100;
+            pointer-events: auto;
+        }
+
+        button {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            border: none;
+            padding: 15px 40px;
+            font-size: 20px;
+            color: white;
+            border-radius: 50px;
+            cursor: pointer;
+            margin-top: 25px;
+            font-weight: bold;
+            transition: transform 0.1s;
+        }
+        button:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="score-box">
+                <span class="label">Current Score</span>
+                <span id="score-display" class="score-val">0</span>
+            </div>
+            <div class="highscore-box">
+                <span class="label">High Score</span>
+                <span id="highscore-display" class="score-val">0</span>
+            </div>
+        </div>
+
+        <div id="spawner-ui">
+            <svg>
+                <circle class="bg-ring" cx="40" cy="40" r="35"></circle>
+                <circle class="progress-ring" id="timer-ring" cx="40" cy="40" r="35"></circle>
+            </svg>
+            <div id="next-shape-icon"></div>
+        </div>
+
+        <div id="controls-hint">
+            ARROWS to Tilt Container<br>
+            Don't let the shapes spill!
+        </div>
+    </div>
+
+    <div id="game-over">
+        <h2 style="font-size: 40px; margin: 0 0 20px 0;">GAME OVER</h2>
+        <p style="color:#aaa;">The container overflowed.</p>
+        <p style="font-size: 24px;">Final Score: <span id="final-score">0</span></p>
+        <button onclick="location.reload()">Replay</button>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import * as CANNON from 'cannon-es';
+
+        // --- Configuration ---
+        const CONFIG = {
+            baseSpawnInterval: 3000,
+            minSpawnInterval: 800, // Cap for how fast it gets
+            difficultyStep: 50,    // Remove ms from interval every tick
+            difficultyTick: 5000,  // Every 5 seconds increase speed
+            tiltSpeed: 0.05,
+            maxTilt: 0.5, 
+            containerSize: 8,
+            wallHeight: 12,
+            gameBoundsY: -20
+        };
+
+        // --- Shape Progression ---
+        const SHAPES = [
+            { name: "Tetrahedron", color: "#ff4444", hex: 0xff4444, score: 10, radius: 0.5, type: 'poly' },
+            { name: "Cube", color: "#44ff44", hex: 0x44ff44, score: 20, radius: 0.7, type: 'box' },
+            { name: "Octahedron", color: "#4444ff", hex: 0x4444ff, score: 40, radius: 0.9, type: 'poly' },
+            { name: "Dodecahedron", color: "#ffff44", hex: 0xffff44, score: 80, radius: 1.2, type: 'poly' },
+            { name: "Icosahedron", color: "#ff44ff", hex: 0xff44ff, score: 160, radius: 1.6, type: 'poly' },
+            { name: "Sphere", color: "#44ffff", hex: 0x44ffff, score: 320, radius: 2.1, type: 'sphere' },
+            { name: "Mega-Star", color: "#ffffff", hex: 0xffffff, score: 1000, radius: 2.8, type: 'sphere' }
+        ];
+
+        // --- Audio ---
+        let audioCtx;
+        function playPopSound(tier) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            const baseFreq = 500 - (tier * 40);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(baseFreq, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.1, audioCtx.currentTime + 0.15);
+
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        // --- Globals ---
+        let scene, camera, renderer, world;
+        let gameObjects = [];
+        let containerMesh;
+        let lastTime;
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('gravityMergeHighscore')) || 0;
+        let isGameOver = false;
+        
+        // Game State
+        let currentSpawnInterval = CONFIG.baseSpawnInterval;
+        let timeUntilDrop = 1000; // Start quick
+        let timeSinceDiffIncrease = 0;
+        let nextShapeTier = 0; // The shape waiting to drop
+        
+        // Controls
+        let tiltX = 0, tiltZ = 0;
+        let keys = { left: false, right: false, up: false, down: false };
+
+        // --- Init ---
+        function init() {
+            document.getElementById('highscore-display').innerText = highScore;
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a20);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 15, 25); // Higher angle to see the chute
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // Lighting
+            const amb = new THREE.AmbientLight(0x505050);
+            scene.add(amb);
+            const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+            dir.position.set(10, 30, 10);
+            dir.castShadow = true;
+            scene.add(dir);
+
+            // Physics
+            world = new CANNON.World();
+            world.gravity.set(0, -9.82, 0);
+            world.broadphase = new CANNON.NaiveBroadphase();
+            world.solver.iterations = 10;
+            
+            // Materials
+            const mat = new CANNON.Material();
+            const contact = new CANNON.ContactMaterial(mat, mat, { friction: 0.3, restitution: 0.2 });
+            world.addContactMaterial(contact);
+
+            createContainer();
+            
+            // Initial Logic
+            pickNextShape();
+            
+            // Listeners
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+            document.addEventListener('keydown', (e) => {
+                if(!audioCtx) playPopSound(0); // Wake audio
+                if(e.code === "ArrowLeft") keys.left = true;
+                if(e.code === "ArrowRight") keys.right = true;
+                if(e.code === "ArrowUp") keys.up = true;
+                if(e.code === "ArrowDown") keys.down = true;
+            });
+            document.addEventListener('keyup', (e) => {
+                if(e.code === "ArrowLeft") keys.left = false;
+                if(e.code === "ArrowRight") keys.right = false;
+                if(e.code === "ArrowUp") keys.up = false;
+                if(e.code === "ArrowDown") keys.down = false;
+            });
+
+            lastTime = performance.now();
+            requestAnimationFrame(animate);
+        }
+
+        function createContainer() {
+            const s = CONFIG.containerSize;
+            const h = CONFIG.wallHeight;
+            const t = 1; // thickness
+            const funnelHeight = 10; // Extra invisible height
+
+            containerMesh = new THREE.Group();
+            scene.add(containerMesh);
+
+            // Helper to build walls
+            const addWall = (w, h, d, x, y, z, transparent, isInvisibleFunnel) => {
+                // Visual Mesh
+                if (!isInvisibleFunnel) {
+                    const geo = new THREE.BoxGeometry(w, h, d);
+                    const mat = new THREE.MeshPhongMaterial({ 
+                        color: transparent ? 0xaaccff : 0xffffff, 
+                        transparent: true, 
+                        opacity: transparent ? 0.1 : 0.2
+                    });
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(x, y, z);
+                    containerMesh.add(mesh);
+                    
+                    // Attach physics body to mesh for sync
+                    const shape = new CANNON.Box(new CANNON.Vec3(w/2, h/2, d/2));
+                    const body = new CANNON.Body({ mass: 0 });
+                    body.addShape(shape);
+                    body.position.set(x, y, z);
+                    world.addBody(body);
+                    mesh.userData.physicsBody = body;
+                } else {
+                    // INVISIBLE FUNNEL WALL (Physics Only)
+                    // We add a dummy mesh to the group so the rotation logic picks it up
+                    const dummyGeo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+                    const dummyMesh = new THREE.Mesh(dummyGeo, new THREE.MeshBasicMaterial({visible:false}));
+                    dummyMesh.position.set(x, y, z);
+                    containerMesh.add(dummyMesh);
+
+                    const shape = new CANNON.Box(new CANNON.Vec3(w/2, h/2, d/2));
+                    const body = new CANNON.Body({ mass: 0 });
+                    body.addShape(shape);
+                    body.position.set(x, y, z);
+                    world.addBody(body);
+                    dummyMesh.userData.physicsBody = body;
+                }
+            };
+
+            // Floor
+            addWall(s, t, s, 0, -h/2, 0, false, false);
+            
+            // Visible Walls
+            addWall(t, h, s, -s/2 - t/2, 0, 0, false, false); // Left
+            addWall(t, h, s, s/2 + t/2, 0, 0, false, false);  // Right
+            addWall(s, h, t, 0, 0, -s/2 - t/2, false, false); // Back
+            addWall(s, h, t, 0, 0, s/2 + t/2, true, false);   // Front (Glass)
+
+            // INVISIBLE FUNNEL (The "Padding" above)
+            // Extending the walls upwards by 'funnelHeight'
+            const fy = h/2 + funnelHeight/2; // Position Y
+            addWall(t, funnelHeight, s, -s/2 - t/2, fy, 0, false, true); 
+            addWall(t, funnelHeight, s, s/2 + t/2, fy, 0, false, true);
+            addWall(s, funnelHeight, t, 0, fy, -s/2 - t/2, false, true);
+            addWall(s, funnelHeight, t, 0, fy, s/2 + t/2, false, true);
+        }
+
+        function pickNextShape() {
+            // Skew probability towards lower shapes (0 and 1)
+            const r = Math.random();
+            if(r < 0.6) nextShapeTier = 0; // Tetrahedron
+            else if(r < 0.9) nextShapeTier = 1; // Cube
+            else nextShapeTier = 2; // Octahedron (Rare starter)
+            
+            // Update UI Icon
+            const icon = document.getElementById('next-shape-icon');
+            const def = SHAPES[nextShapeTier];
+            icon.style.backgroundColor = def.color;
+            icon.style.borderRadius = def.type === 'box' ? '5px' : '50%';
+        }
+
+        function spawnShape() {
+            // Fixed drop height, consistent center position
+            const dropHeight = CONFIG.wallHeight + 6; 
+            
+            createShape(nextShapeTier, 0, dropHeight, 0);
+            pickNextShape();
+        }
+
+        function createShape(tier, x, y, z) {
+            if(tier >= SHAPES.length) return;
+            const def = SHAPES[tier];
+
+            // Geo
+            let geo;
+            const r = def.radius;
+            if(tier === 0) geo = new THREE.TetrahedronGeometry(r);
+            else if(tier === 1) geo = new THREE.BoxGeometry(r*1.5, r*1.5, r*1.5);
+            else if(tier === 2) geo = new THREE.OctahedronGeometry(r);
+            else if(tier === 3) geo = new THREE.DodecahedronGeometry(r);
+            else if(tier === 4) geo = new THREE.IcosahedronGeometry(r);
+            else geo = new THREE.SphereGeometry(r, 24, 24);
+
+            const mat = new THREE.MeshStandardMaterial({ color: def.hex, roughness: 0.4, metalness: 0.2 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+
+            // Body
+            let shape;
+            if(tier === 1) shape = new CANNON.Box(new CANNON.Vec3(r*0.75, r*0.75, r*0.75));
+            else shape = new CANNON.Sphere(r);
+
+            const body = new CANNON.Body({ mass: 1 + tier, shape: shape });
+            body.position.set(x, y, z);
+            // Random rotation on spawn for variety
+            body.quaternion.setFromEuler(Math.random()*3, Math.random()*3, Math.random()*3);
+            world.addBody(body);
+
+            const obj = { mesh, body, tier, toRemove: false };
+            gameObjects.push(obj);
+
+            body.addEventListener("collide", (e) => handleCollision(obj, e.body));
+        }
+
+        function handleCollision(objA, bodyB) {
+            if (objA.toRemove) return;
+            const objB = gameObjects.find(go => go.body === bodyB);
+            if (!objB || objB.toRemove) return;
+
+            if (objA.tier === objB.tier && objA.tier < SHAPES.length - 1) {
+                const center = new CANNON.Vec3();
+                objA.body.position.vadd(objB.body.position, center);
+                center.scale(0.5, center);
+
+                objA.toRemove = true;
+                objB.toRemove = true;
+
+                setTimeout(() => {
+                    playPopSound(objA.tier);
+                    removeObject(objA);
+                    removeObject(objB);
+                    createShape(objA.tier + 1, center.x, center.y, center.z);
+                    score += SHAPES[objA.tier].score * 2;
+                    document.getElementById('score-display').innerText = score;
+                }, 0);
+            }
+        }
+
+        function removeObject(obj) {
+            scene.remove(obj.mesh);
+            obj.mesh.geometry.dispose();
+            obj.mesh.material.dispose();
+            world.removeBody(obj.body);
+            gameObjects = gameObjects.filter(g => g !== obj);
+        }
+
+        function updateDifficulty(dt) {
+            timeSinceDiffIncrease += dt;
+            if (timeSinceDiffIncrease > CONFIG.difficultyTick) {
+                currentSpawnInterval = Math.max(CONFIG.minSpawnInterval, currentSpawnInterval - CONFIG.difficultyStep);
+                timeSinceDiffIncrease = 0;
+            }
+        }
+
+        function animate(time) {
+            if(isGameOver) return;
+            requestAnimationFrame(animate);
+            const dt = (time - lastTime) / 1000;
+            lastTime = time;
+
+            updateDifficulty(dt * 1000);
+
+            // --- Spawning Logic ---
+            timeUntilDrop -= (dt * 1000);
+            
+            // Update UI Ring
+            const ring = document.getElementById('timer-ring');
+            const totalDash = 220;
+            const progress = Math.max(0, timeUntilDrop / currentSpawnInterval);
+            ring.style.strokeDashoffset = totalDash - (progress * totalDash);
+
+            if (timeUntilDrop <= 0) {
+                spawnShape();
+                timeUntilDrop = currentSpawnInterval;
+            }
+
+            // --- Tilt Logic ---
+            const s = CONFIG.tiltSpeed * dt * 20;
+            if(keys.left) tiltZ += s;
+            if(keys.right) tiltZ -= s;
+            if(keys.up) tiltX -= s;
+            if(keys.down) tiltX += s;
+            
+            tiltX = Math.max(-CONFIG.maxTilt, Math.min(CONFIG.maxTilt, tiltX));
+            tiltZ = Math.max(-CONFIG.maxTilt, Math.min(CONFIG.maxTilt, tiltZ));
+
+            // Apply to Container Visuals
+            containerMesh.rotation.x = tiltX;
+            containerMesh.rotation.z = tiltZ;
+
+            // Apply to Physics Bodies (Walls + Invisible Funnel)
+            const euler = new THREE.Euler(tiltX, 0, tiltZ);
+            const quat = new THREE.Quaternion().setFromEuler(euler);
+            
+            containerMesh.children.forEach(child => {
+                if(child.userData.physicsBody) {
+                    const b = child.userData.physicsBody;
+                    const localPos = child.position.clone();
+                    localPos.applyQuaternion(quat);
+                    b.position.copy(localPos);
+                    b.quaternion.copy(quat);
+                }
+            });
+
+            // --- Physics ---
+            world.step(1/60, dt, 3);
+
+            // --- Sync & Bounds Check ---
+            const boundsLimit = CONFIG.containerSize/2 + 4; 
+            
+            gameObjects.forEach(obj => {
+                obj.mesh.position.copy(obj.body.position);
+                obj.mesh.quaternion.copy(obj.body.quaternion);
+
+                // Check for loose shape falling into void
+                if(obj.body.position.y < CONFIG.gameBoundsY) {
+                    endGame();
+                }
+
+                // Check for overflow (fell out of box laterally and is below the rim)
+                // Rim is at 0 (center) + half height = 6. 
+                if(obj.body.position.y < 6) {
+                    if(Math.abs(obj.body.position.x) > boundsLimit || Math.abs(obj.body.position.z) > boundsLimit) {
+                        // It's outside the walls. If it drops further, game over.
+                        if(obj.body.position.y < -4) endGame();
+                    }
+                }
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        function endGame() {
+            if(isGameOver) return;
+            isGameOver = true;
+            
+            // High Score Logic
+            if(score > highScore) {
+                highScore = score;
+                localStorage.setItem('gravityMergeHighscore', highScore);
+            }
+            
+            document.getElementById('final-score').innerText = score;
+            document.getElementById('game-over').style.display = 'block';
+        }
+
+        init();
+    </script>
+</body>
+</html>
