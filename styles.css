@@ -1,17 +1,17 @@
 * {
     font-family: 'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
-    color: white;
+    color: #e8f0ff;
 }
 
 body {
-    background-color: lightslategray;
+    background-color: #0b1324;
     margin: 0;
 }
 
 .nav-bar {
     width: 100%;
     padding: 20px;
-    background-color: black;
+    background-color: #0f1f38;
     text-align: center;
 
     a {
@@ -20,9 +20,9 @@ body {
 }
 
 .main-container {
-    background-color: black;
+    background-color: #111d33;
     padding: 20px;
-    border: 2px solid white;
+    border: 2px solid #6bb8ff;
     width: 50%;
     margin: auto;
     margin-top: 50px;
@@ -32,6 +32,7 @@ body {
 iframe {
     width: 100%;
     height: auto;
+    aspect-ratio: 1.777;
     margin: 0 20px 20px 0;
 }
 
@@ -43,8 +44,8 @@ iframe {
 .footer {
     text-align: center;
     padding: 10px;
-    background-color: black;
-    color: white;
+    background-color: #0f1f38;
+    color: #e8f0ff;
     position: fixed;
     
     bottom: 0;
@@ -55,4 +56,3 @@ iframe {
         text-decoration: none;
     }
 }
-
