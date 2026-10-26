@@ -15,7 +15,7 @@ const NO_FEED_SITES = {
   },
   facebook: {
     label: "Facebook",
-    hosts: ["www.facebook.com", "web.facebook.com"],
+    hosts: ["www.facebook.com", "web.facebook.com", "m.facebook.com"],
     isFeed: (path) => path === "/" || path === "/home.php",
     links: [
       ["Marketplace", "/marketplace/"],
