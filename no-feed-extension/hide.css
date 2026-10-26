@@ -1,0 +1,73 @@
+/* Only applies while you're on a feed page (content.js sets data-no-feed). */
+
+/* LinkedIn: hide posts and news, keep the "Start a post" box. */
+html[data-no-feed="linkedin"] .scaffold-finite-scroll,
+html[data-no-feed="linkedin"] [data-finite-scroll-hotkey-context="FEED"],
+html[data-no-feed="linkedin"] .feed-shared-update-v2,
+html[data-no-feed="linkedin"] [data-id^="urn:li:activity"],
+html[data-no-feed="linkedin"] .feed-sort-toggle-dsa__wrapper,
+html[data-no-feed="linkedin"] #feed-news-module {
+  display: none !important;
+}
+
+/* Facebook: hide the feed, stories and reels, keep the composer. */
+html[data-no-feed="facebook"] [role="feed"],
+html[data-no-feed="facebook"] [aria-label="Stories"],
+html[data-no-feed="facebook"] [aria-label="Reels"] {
+  display: none !important;
+}
+
+/* Instagram: hide posts, stories and suggestions on the home page. Sidebar (Create, Search, Messages) stays. */
+html[data-no-feed="instagram"] main {
+  display: none !important;
+}
+
+/* X: hide the home timeline, keep the "What's happening?" composer. */
+html[data-no-feed="x"] [data-testid="primaryColumn"] section[role="region"],
+html[data-no-feed="x"] [aria-label^="Timeline: Your Home Timeline"] {
+  display: none !important;
+}
+
+/* YouTube: hide home recommendations and Shorts. Search stays. */
+html[data-no-feed="youtube"] ytd-browse[page-subtype="home"] #contents,
+html[data-no-feed="youtube"] ytd-browse[page-subtype="home"] #header,
+html[data-no-feed="youtube"] ytd-shorts {
+  display: none !important;
+}
+
+/* Shortcut panel shown in place of the feed. */
+#no-feed-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  max-width: calc(100vw - 32px);
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: #111827;
+  color: #f9fafb;
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+#no-feed-panel .no-feed-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+#no-feed-panel .no-feed-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+#no-feed-panel a {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #374151;
+  color: #f9fafb !important;
+  text-decoration: none !important;
+}
+#no-feed-panel a:hover {
+  background: #4b5563;
+}
